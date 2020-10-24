@@ -29,7 +29,6 @@ import com.amazonaws.services.simpleemail.model.Destination;
 import com.amazonaws.services.simpleemail.model.Message;
 import com.amazonaws.services.simpleemail.model.SendEmailRequest;
 
-
 public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 
 	private AmazonS3 s3 = AmazonS3ClientBuilder.standard().build();
@@ -79,88 +78,164 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 				.withSummarizationAttributes(summaryAttributes);
 
 		try {
+			String bodyHTML = "<h1>PPE detection report</h1>\n" + "<p>Hi, here are the results for the image " + photo
+					+ "</p>\n" + "<h2>Results</h2>\r\n";
 			String ppeDetectionResult = "";
 			ppeDetectionResult += "Detected PPE for people in image " + photo + "\n";
 			ppeDetectionResult += "Detected people\n---------------------------" + "\n";
 			DetectProtectiveEquipmentResult result = rekognitionClient.detectProtectiveEquipment(request);
 
 			List<ProtectiveEquipmentPerson> persons = result.getPersons();
+			if (persons.size() == 0) {
+				bodyHTML += "<p><em>No persons detected</em></p>";
+				}
 
-			for (ProtectiveEquipmentPerson person : persons) {
-				ppeDetectionResult += "Detected person: " + person.getId() + "\n";
-				List<ProtectiveEquipmentBodyPart> bodyParts = person.getBodyParts();
-				if (bodyParts.isEmpty()) {
-					ppeDetectionResult += "\tNo body parts detected" + "\n";
-				} else
-					for (ProtectiveEquipmentBodyPart bodyPart : bodyParts) {
-						ppeDetectionResult += "\t" + bodyPart.getName() + ". Confidence: "
-								+ bodyPart.getConfidence().toString() + "\n";
+				for (ProtectiveEquipmentPerson person : persons) {
+					bodyHTML += "<h3>User's id: " + person.getId() + "</h3>\n";
+					ppeDetectionResult += "Detected person: " + person.getId() + "\n";
+					List<ProtectiveEquipmentBodyPart> bodyParts = person.getBodyParts();
+					if (bodyParts.isEmpty()) {
+						ppeDetectionResult += "\tNo body parts detected" + "\n";
+						bodyHTML += "<p><em>No body parts detected</em></p>";
+					} else
+						for (ProtectiveEquipmentBodyPart bodyPart : bodyParts) {
 
-						List<EquipmentDetection> equipmentDetections = bodyPart.getEquipmentDetections();
+							bodyHTML += "<h4>" + bodyPart.getName() + "</h4>\r\n" + "<ul>\r\n" + "<li>Confidence: "
+									+ bodyPart.getConfidence().toString() + "</li>\n";
 
-						if (equipmentDetections.isEmpty()) {
-							ppeDetectionResult += "\t\tNo PPE Detected on " + bodyPart.getName() + "\n";
+							ppeDetectionResult += "\t" + bodyPart.getName() + ". Confidence: "
+									+ bodyPart.getConfidence().toString() + "\n";
 
-						} else {
-							for (EquipmentDetection item : equipmentDetections) {
-								ppeDetectionResult += "\t\tItem: " + item.getType() + ". Confidence: "
-										+ item.getConfidence().toString() + "\n";
-								ppeDetectionResult += "\t\tCovers body part: "
-										+ item.getCoversBodyPart().getValue().toString() + ". Confidence: "
-										+ item.getCoversBodyPart().getConfidence().toString() + "\n";
+							List<EquipmentDetection> equipmentDetections = bodyPart.getEquipmentDetections();
 
-								ppeDetectionResult += "\t\tBounding Box";
-								BoundingBox box = item.getBoundingBox();
+							if (equipmentDetections.isEmpty()) {
+								ppeDetectionResult += "\t\tNo PPE Detected on " + bodyPart.getName() + "\n";
+								bodyHTML += "<p><em>No PPE Detected on " + bodyPart.getName() + "</em></p>\n </ul>";
 
-								ppeDetectionResult += "\t\tLeft: " + box.getLeft().toString() + "\n";
-								ppeDetectionResult += "\t\tTop: " + box.getTop().toString() + "\n";
-								ppeDetectionResult += "\t\tWidth: " + box.getWidth().toString() + "\n";
-								ppeDetectionResult += "\t\tHeight: " + box.getHeight().toString() + "\n";
-								ppeDetectionResult += "\t\tConfidence: " + item.getConfidence().toString() + "\n";
-								System.out.println();
+							} else {
+								for (EquipmentDetection item : equipmentDetections) {
+									bodyHTML += "<li>" + item.getType() + ": "
+											+ item.getCoversBodyPart().getValue().toString() + "\n" + "<ul>\n"
+											+ "<li>Confidence: " + item.getCoversBodyPart().getConfidence().toString()
+											+ "</li>\n" + "</ul>\n" + "</li>" + "</ul>";
+									ppeDetectionResult += "\t\tItem: " + item.getType() + ". Confidence: "
+											+ item.getConfidence().toString() + "\n";
+									ppeDetectionResult += "\t\tCovers body part: "
+											+ item.getCoversBodyPart().getValue().toString() + ". Confidence: "
+											+ item.getCoversBodyPart().getConfidence().toString() + "\n";
+
+									ppeDetectionResult += "\t\tBounding Box";
+									BoundingBox box = item.getBoundingBox();
+
+									ppeDetectionResult += "\t\tLeft: " + box.getLeft().toString() + "\n";
+									ppeDetectionResult += "\t\tTop: " + box.getTop().toString() + "\n";
+									ppeDetectionResult += "\t\tWidth: " + box.getWidth().toString() + "\n";
+									ppeDetectionResult += "\t\tHeight: " + box.getHeight().toString() + "\n";
+									ppeDetectionResult += "\t\tConfidence: " + item.getConfidence().toString() + "\n";
+									System.out.println();
+								}
 							}
+							bodyHTML += "<hr/>\n";
 						}
+				}
 
+				List<Integer> listWithRequired = result.getSummary().getPersonsWithRequiredEquipment();
+				List<Integer> listWithoutRequired = result.getSummary().getPersonsWithoutRequiredEquipment();
+				List<Integer> listIndeterminated = result.getSummary().getPersonsIndeterminate();
+
+				bodyHTML += "<h2>Summary</h2>\n"
+						+ "<h3><span class=\"hljs-attr\">Persons with required equipment</span></h3>\n"
+						+ "<p><strong>Total: " + listWithRequired.size() + "</strong></p>";
+
+				String idList = "";
+
+				for (int i = 0; i < listWithRequired.size(); i++) {
+					if (i != 0) {
+						idList += ", " + listWithRequired.get(i);
+					} else {
+						idList += listWithRequired.get(i);
 					}
-			}
-			context.getLogger().log("Person ID Summary\n-----------------" + "\n");
+				}
 
-			// List<Integer> list=;
-			ppeDetectionResult += DisplaySummary("With required equipment",
-					result.getSummary().getPersonsWithRequiredEquipment(), context);
-			ppeDetectionResult += DisplaySummary("Without required equipment",
-					result.getSummary().getPersonsWithoutRequiredEquipment(), context);
-			ppeDetectionResult += DisplaySummary("Indeterminate", result.getSummary().getPersonsIndeterminate(),
+				if (listWithRequired.size() > 0) {
+					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+				}
+
+				bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Persons without required equipment</span></h3>\n"
+						+ "<p><strong>Total: " + listWithoutRequired.size() + "</strong></p>";
+
+				idList = "";
+				for (int i = 0; i < listWithoutRequired.size(); i++) {
+					if (i != 0) {
+						idList += ", " + listWithoutRequired.get(i);
+					} else {
+						idList += listWithoutRequired.get(i);
+					}
+				}
+
+				if (listWithoutRequired.size() > 0) {
+					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+				}
+
+				bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Indeterminated persons</span></h3>\n"
+						+ "<p><strong>Total: " + listIndeterminated.size() + "</strong></p>";
+
+				idList = "";
+				for (int i = 0; i < listIndeterminated.size(); i++) {
+					if (i != 0) {
+						idList += ", " + listIndeterminated.get(i);
+					} else {
+						idList += listIndeterminated.get(i);
+					}
+				}
+
+				if (listIndeterminated.size() > 0) {
+					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+				}
+
+				bodyHTML += "<hr />\n <h3 style=\"text-align: center;\"><strong>Thank you for using our service!</strong></h3>";
+
+				context.getLogger().log("Person ID Summary\n-----------------" + "\n");
+
+				// List<Integer> list=;
+				ppeDetectionResult += DisplaySummary("With required equipment",
+						result.getSummary().getPersonsWithRequiredEquipment(), context);
+				ppeDetectionResult += DisplaySummary("Without required equipment",
+						result.getSummary().getPersonsWithoutRequiredEquipment(), context);
+				ppeDetectionResult += DisplaySummary("Indeterminate", result.getSummary().getPersonsIndeterminate(),
+						context);
+			
+			
+			// publishToTopic(ppeDetectionResult,
+			// "arn:aws:sns:us-west-2:682086073548:ppe_detection_topic_grupo5",context);
+			String subject = "Detected PPE for people in image" + photo;
+
+			send("saraodrada@gmail.com", "juanmanuelimbachi@hotmail.com", subject, ppeDetectionResult, bodyHTML,
 					context);
 
-			//publishToTopic(ppeDetectionResult, "arn:aws:sns:us-west-2:682086073548:ppe_detection_topic_grupo5",context);
-			String subject = "Detected PPE for people in image" + photo;
-			String bodyHTML = "<h1>Amazon SES test (AWS SDK for Java)</h1>"
-				      + "<p>This email was sent with <a href='https://aws.amazon.com/ses/'>"
-				      + "Amazon SES</a> using the <a href='https://aws.amazon.com/sdk-for-java/'>" 
-				      + "AWS SDK for Java</a>";
-			send("saraodrada@gmail.com", "juanmanuelimbachi@hotmail.com", subject, ppeDetectionResult, bodyHTML, context);
 		} catch (AmazonRekognitionException e) {
 			e.printStackTrace();
 		}
 	}
-	
+
 	public static void send(String from, String to, String subject, String bodyText, String bodyHTML, Context context) {
 
-		AmazonSimpleEmailService client = AmazonSimpleEmailServiceClientBuilder
-				.standard()
-				.withRegion(Regions.US_WEST_2)
+		AmazonSimpleEmailService client = AmazonSimpleEmailServiceClientBuilder.standard().withRegion(Regions.US_WEST_2)
 				.build();
-		
-		SendEmailRequest request = new SendEmailRequest()
-				.withDestination(new Destination().withToAddresses(to))
-				.withMessage(new Message().withBody(new Body().withHtml(new Content().withCharset("UTF-8").withData(bodyHTML))
-				.withText(new Content().withCharset("UTF-8").withData(bodyText)))
-				.withSubject(new Content().withCharset("UTF-8").withData(subject)))
+
+		SendEmailRequest request = new SendEmailRequest().withDestination(new Destination().withToAddresses(to))
+				.withMessage(new Message()
+						.withBody(new Body().withHtml(new Content().withCharset("UTF-8").withData(bodyHTML))
+								.withText(new Content().withCharset("UTF-8").withData(bodyText)))
+						.withSubject(new Content().withCharset("UTF-8").withData(subject)))
 				.withSource(from);
 
 		client.sendEmail(request);
 		context.getLogger().log("Email sent!");
+
+	}
+
+	public static void getUserData() {
 
 	}
 
