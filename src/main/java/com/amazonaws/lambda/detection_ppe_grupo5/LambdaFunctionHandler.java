@@ -9,7 +9,6 @@ import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.amazonaws.services.rekognition.AmazonRekognition;
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder;
 import com.amazonaws.services.rekognition.model.AmazonRekognitionException;
-import com.amazonaws.services.rekognition.model.BoundingBox;
 import com.amazonaws.services.rekognition.model.DetectProtectiveEquipmentRequest;
 import com.amazonaws.services.rekognition.model.DetectProtectiveEquipmentResult;
 import com.amazonaws.services.rekognition.model.EquipmentDetection;
@@ -70,7 +69,7 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 		AmazonRekognition rekognitionClient = AmazonRekognitionClientBuilder.defaultClient();
 
 		ProtectiveEquipmentSummarizationAttributes summaryAttributes = new ProtectiveEquipmentSummarizationAttributes()
-				.withMinConfidence(80F).withRequiredEquipmentTypes("FACE_COVER", "HAND_COVER", "HEAD_COVER");
+				.withMinConfidence(80F).withRequiredEquipmentTypes("FACE_COVER", "HAND_COVER");
 
 		DetectProtectiveEquipmentRequest request = new DetectProtectiveEquipmentRequest()
 				.withImage(new Image().withS3Object(
@@ -78,8 +77,9 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 				.withSummarizationAttributes(summaryAttributes);
 
 		try {
-			String bodyHTML = "<h1>PPE detection report</h1>\n" + "<p>Hi, here are the results for the image " + photo
-					+ "</p>\n" + "<h2>Results</h2>\r\n";
+			String bodyHTML = "<h1>PPE Detection Report</h1>\n"
+					+ "<p>Here are the results of the PPE detection service for the image " + photo + "</p>\n"
+					+ "<h2>Results</h2>\r\n";
 			String ppeDetectionResult = "";
 			ppeDetectionResult += "Detected PPE for people in image " + photo + "\n";
 			ppeDetectionResult += "Detected people\n---------------------------" + "\n";
@@ -88,126 +88,112 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 			List<ProtectiveEquipmentPerson> persons = result.getPersons();
 			if (persons.size() == 0) {
 				bodyHTML += "<p><em>No persons detected</em></p>";
-				}
+			}
 
-				for (ProtectiveEquipmentPerson person : persons) {
-					bodyHTML += "<h3>User's id: " + person.getId() + "</h3>\n";
-					ppeDetectionResult += "Detected person: " + person.getId() + "\n";
-					List<ProtectiveEquipmentBodyPart> bodyParts = person.getBodyParts();
-					if (bodyParts.isEmpty()) {
-						ppeDetectionResult += "\tNo body parts detected" + "\n";
-						bodyHTML += "<p><em>No body parts detected</em></p>";
-					} else
-						for (ProtectiveEquipmentBodyPart bodyPart : bodyParts) {
+			for (ProtectiveEquipmentPerson person : persons) {
+				bodyHTML += "<h3>Detected person #" + person.getId() + "</h3>\n";
+				ppeDetectionResult += "Detected person: " + person.getId() + "\n";
+				List<ProtectiveEquipmentBodyPart> bodyParts = person.getBodyParts();
+				if (bodyParts.isEmpty()) {
+					ppeDetectionResult += "\tNo body parts detected" + "\n";
+					bodyHTML += "<p><em>No body parts detected</em></p>";
+				} else
+					for (ProtectiveEquipmentBodyPart bodyPart : bodyParts) {
+						bodyHTML += "<h4>" + bodyPart.getName() + "</h4>\r\n" + "<ul>\r\n" + "<li>Confidence: "
+								+ bodyPart.getConfidence().toString() + "</li>\n";
 
-							bodyHTML += "<h4>" + bodyPart.getName() + "</h4>\r\n" + "<ul>\r\n" + "<li>Confidence: "
-									+ bodyPart.getConfidence().toString() + "</li>\n";
+						ppeDetectionResult += "\t" + bodyPart.getName() + ". Confidence: "
+								+ bodyPart.getConfidence().toString() + "\n";
 
-							ppeDetectionResult += "\t" + bodyPart.getName() + ". Confidence: "
-									+ bodyPart.getConfidence().toString() + "\n";
+						List<EquipmentDetection> equipmentDetections = bodyPart.getEquipmentDetections();
 
-							List<EquipmentDetection> equipmentDetections = bodyPart.getEquipmentDetections();
+						if (equipmentDetections.isEmpty()) {
+							ppeDetectionResult += "\t\tNo PPE Detected on " + bodyPart.getName() + "\n";
+							bodyHTML += "<p><em>No PPE Detected on " + bodyPart.getName() + "</em></p>\n </ul>";
 
-							if (equipmentDetections.isEmpty()) {
-								ppeDetectionResult += "\t\tNo PPE Detected on " + bodyPart.getName() + "\n";
-								bodyHTML += "<p><em>No PPE Detected on " + bodyPart.getName() + "</em></p>\n </ul>";
-
-							} else {
-								for (EquipmentDetection item : equipmentDetections) {
-									bodyHTML += "<li>" + item.getType() + ": "
-											+ item.getCoversBodyPart().getValue().toString() + "\n" + "<ul>\n"
-											+ "<li>Confidence: " + item.getCoversBodyPart().getConfidence().toString()
-											+ "</li>\n" + "</ul>\n" + "</li>" + "</ul>";
-									ppeDetectionResult += "\t\tItem: " + item.getType() + ". Confidence: "
-											+ item.getConfidence().toString() + "\n";
-									ppeDetectionResult += "\t\tCovers body part: "
-											+ item.getCoversBodyPart().getValue().toString() + ". Confidence: "
-											+ item.getCoversBodyPart().getConfidence().toString() + "\n";
-
-									ppeDetectionResult += "\t\tBounding Box";
-									BoundingBox box = item.getBoundingBox();
-
-									ppeDetectionResult += "\t\tLeft: " + box.getLeft().toString() + "\n";
-									ppeDetectionResult += "\t\tTop: " + box.getTop().toString() + "\n";
-									ppeDetectionResult += "\t\tWidth: " + box.getWidth().toString() + "\n";
-									ppeDetectionResult += "\t\tHeight: " + box.getHeight().toString() + "\n";
-									ppeDetectionResult += "\t\tConfidence: " + item.getConfidence().toString() + "\n";
-									System.out.println();
-								}
+						} else {
+							for (EquipmentDetection item : equipmentDetections) {
+								bodyHTML += "<li>" + item.getType() + ": "
+										+ item.getCoversBodyPart().getValue().toString() + "\n" + "<ul>\n"
+										+ "<li>Confidence: " + item.getCoversBodyPart().getConfidence().toString()
+										+ "</li>\n" + "</ul>\n" + "</li>" + "</ul>";
+								ppeDetectionResult += "\t\tItem: " + item.getType() + ". Confidence: "
+										+ item.getConfidence().toString() + "\n";
+								ppeDetectionResult += "\t\tCovers body part: "
+										+ item.getCoversBodyPart().getValue().toString() + ". Confidence: "
+										+ item.getCoversBodyPart().getConfidence().toString() + "\n";
 							}
-							bodyHTML += "<hr/>\n";
 						}
-				}
 
-				List<Integer> listWithRequired = result.getSummary().getPersonsWithRequiredEquipment();
-				List<Integer> listWithoutRequired = result.getSummary().getPersonsWithoutRequiredEquipment();
-				List<Integer> listIndeterminated = result.getSummary().getPersonsIndeterminate();
-
-				bodyHTML += "<h2>Summary</h2>\n"
-						+ "<h3><span class=\"hljs-attr\">Persons with required equipment</span></h3>\n"
-						+ "<p><strong>Total: " + listWithRequired.size() + "</strong></p>";
-
-				String idList = "";
-
-				for (int i = 0; i < listWithRequired.size(); i++) {
-					if (i != 0) {
-						idList += ", " + listWithRequired.get(i);
-					} else {
-						idList += listWithRequired.get(i);
 					}
+				bodyHTML += "<hr/>\n";
+			}
+
+			List<Integer> listWithRequired = result.getSummary().getPersonsWithRequiredEquipment();
+			List<Integer> listWithoutRequired = result.getSummary().getPersonsWithoutRequiredEquipment();
+			List<Integer> listIndeterminated = result.getSummary().getPersonsIndeterminate();
+
+			bodyHTML += "<h2>Summary</h2>\n"
+					+ "<h3><span class=\"hljs-attr\">Persons with required equipment</span></h3>\n"
+					+ "<p><strong>Total: " + listWithRequired.size() + "</strong></p>";
+
+			String idList = "";
+
+			for (int i = 0; i < listWithRequired.size(); i++) {
+				if (i != 0) {
+					idList += ", " + listWithRequired.get(i);
+				} else {
+					idList += listWithRequired.get(i);
 				}
+			}
 
-				if (listWithRequired.size() > 0) {
-					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+			if (listWithRequired.size() > 0) {
+				bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+			}
+
+			bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Persons without required equipment</span></h3>\n"
+					+ "<p><strong>Total: " + listWithoutRequired.size() + "</strong></p>";
+
+			idList = "";
+			for (int i = 0; i < listWithoutRequired.size(); i++) {
+				if (i != 0) {
+					idList += ", " + listWithoutRequired.get(i);
+				} else {
+					idList += listWithoutRequired.get(i);
 				}
+			}
 
-				bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Persons without required equipment</span></h3>\n"
-						+ "<p><strong>Total: " + listWithoutRequired.size() + "</strong></p>";
+			if (listWithoutRequired.size() > 0) {
+				bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+			}
 
-				idList = "";
-				for (int i = 0; i < listWithoutRequired.size(); i++) {
-					if (i != 0) {
-						idList += ", " + listWithoutRequired.get(i);
-					} else {
-						idList += listWithoutRequired.get(i);
-					}
+			bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Indeterminated persons</span></h3>\n" + "<p><strong>Total: "
+					+ listIndeterminated.size() + "</strong></p>";
+
+			idList = "";
+			for (int i = 0; i < listIndeterminated.size(); i++) {
+				if (i != 0) {
+					idList += ", " + listIndeterminated.get(i);
+				} else {
+					idList += listIndeterminated.get(i);
 				}
+			}
 
-				if (listWithoutRequired.size() > 0) {
-					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
-				}
+			if (listIndeterminated.size() > 0) {
+				bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
+			}
 
-				bodyHTML += "\n\n<h3><span class=\"hljs-attr\">Indeterminated persons</span></h3>\n"
-						+ "<p><strong>Total: " + listIndeterminated.size() + "</strong></p>";
+			bodyHTML += "<hr />\n <h3 style=\"text-align: center;\"><strong>Thank you for using our service!</strong></h3>";
 
-				idList = "";
-				for (int i = 0; i < listIndeterminated.size(); i++) {
-					if (i != 0) {
-						idList += ", " + listIndeterminated.get(i);
-					} else {
-						idList += listIndeterminated.get(i);
-					}
-				}
+			context.getLogger().log("Person ID Summary\n-----------------" + "\n");
 
-				if (listIndeterminated.size() > 0) {
-					bodyHTML += "<p><strong>IDs: " + idList + "</strong></p>\n";
-				}
+			ppeDetectionResult += DisplaySummary("With required equipment",
+					result.getSummary().getPersonsWithRequiredEquipment(), context);
+			ppeDetectionResult += DisplaySummary("Without required equipment",
+					result.getSummary().getPersonsWithoutRequiredEquipment(), context);
+			ppeDetectionResult += DisplaySummary("Indeterminate", result.getSummary().getPersonsIndeterminate(),
+					context);
 
-				bodyHTML += "<hr />\n <h3 style=\"text-align: center;\"><strong>Thank you for using our service!</strong></h3>";
-
-				context.getLogger().log("Person ID Summary\n-----------------" + "\n");
-
-				// List<Integer> list=;
-				ppeDetectionResult += DisplaySummary("With required equipment",
-						result.getSummary().getPersonsWithRequiredEquipment(), context);
-				ppeDetectionResult += DisplaySummary("Without required equipment",
-						result.getSummary().getPersonsWithoutRequiredEquipment(), context);
-				ppeDetectionResult += DisplaySummary("Indeterminate", result.getSummary().getPersonsIndeterminate(),
-						context);
-			
-			
-			// publishToTopic(ppeDetectionResult,
-			// "arn:aws:sns:us-west-2:682086073548:ppe_detection_topic_grupo5",context);
 			String subject = "Detected PPE for people in image" + photo;
 
 			send("saraodrada@gmail.com", "juanmanuelimbachi@hotmail.com", subject, ppeDetectionResult, bodyHTML,
@@ -235,10 +221,6 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 
 	}
 
-	public static void getUserData() {
-
-	}
-
 	public static String DisplaySummary(String summaryType, List<Integer> idList, Context context) {
 		String summary = "";
 		summary += summaryType + "\n\tIDs  " + "\n";
@@ -260,24 +242,5 @@ public class LambdaFunctionHandler implements RequestHandler<S3Event, String> {
 		return summary;
 
 	}
-//
-//	public static void publishToTopic(String message, String topicArn, Context context) {
-//
-//		try {
-//			SnsClient snsClient = SnsClient.builder().region(Region.US_WEST_2).build();
-//
-//			PublishRequest request = PublishRequest.builder().message(message).topicArn(topicArn).build();
-//
-//			PublishResponse result = snsClient.publish(request);
-//			context.getLogger()
-//					.log(result.messageId() + " Message sent. Status was " + result.sdkHttpResponse().statusCode());
-//			context.getLogger().log(
-//					result.messageId() + " PPE Detection results were sent " + result.sdkHttpResponse().statusCode());
-//
-//		} catch (SnsException e) {
-//			System.err.println(e.awsErrorDetails().errorMessage());
-//			System.exit(1);
-//		}
-//	}
 
 }
